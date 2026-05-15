@@ -1,0 +1,27 @@
+[project]
+name = "langgraph-demo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cloudpickle>=3.1.2",
+    "google-auth>=2.52.0",
+    "google-cloud-aiplatform>=1.153.1",
+    "httpx>=0.28.1",
+    "langchain-core>=1.4.0",
+    "langchain-google-vertexai>=3.2.3",
+    "langgraph>=1.2.0",
+    "opentelemetry-api>=1.41.1",
+    "opentelemetry-exporter-otlp>=1.41.1",
+    "opentelemetry-instrumentation-google-genai>=0.7b0",
+    "opentelemetry-instrumentation-langchain>=0.60.0",
+    "opentelemetry-sdk>=1.41.1",
+    "python-dotenv>=1.2.2",
+    "rich>=15.0.0",
+    "wrapt==1.17.3",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"
+default = true

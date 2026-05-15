@@ -18,7 +18,7 @@ def init_telemetry():
     os.environ["LANGSMITH_TRACING"] = "false"
     os.environ["OTEL_SERVICE_NAME"] = "demo-langgraph"
     os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
-    os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/json"
+
 
     # Get default credentials with broad cloud-platform scope
     credentials, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
@@ -44,7 +44,7 @@ def init_telemetry():
     provider = TracerProvider(resource=resource)
     otlp_exporter = OTLPSpanExporter(
         credentials=channel_creds,
-        endpoint="https://telemetry.googleapis.com:443/v1/traces",
+        endpoint="telemetry.googleapis.com:443",
     )
     processor = BatchSpanProcessor(otlp_exporter)
     provider.add_span_processor(processor)

@@ -11,7 +11,7 @@ There are several core configuration changes and best practices to be aware of:
 When defining and deploying your agent, transition to the General Availability (GA) `vertexai.agent_engines` SDK rather than legacy Preview endpoints.
 
 - **Agent Definition**: Wrap your agent configuration using `agent_engines.LanggraphAgent`.
-- **Deployment**: Use `agent_engines.create()` or `agent_engines.update()` to deploy your agent. Be sure to include your local agent modules via the `extra_packages` parameter (e.g., `extra_packages=["demo_agent"]`) so they are properly bundled and uploaded to the remote runtime.
+- **Deployment**: Use `agent_engines.create()` or `agent_engines.update()` to deploy your agent. Be sure to include your local agent modules via the `extra_packages` parameter (e.g., `extra_packages=["my_agent_module"]`) so they are properly bundled and uploaded to the remote runtime.
 
 ## 2. Configure Model and Checkpointer Builders
 
@@ -50,7 +50,7 @@ Ensure prompt messages and responses are written to Cloud Logging in a structure
 - Implement custom callback hooks for `on_chain_start`, `on_chain_end`, `on_chat_model_start`, and `on_llm_end`.
 - Format log entries as structured JSON objects containing severity, message, list of prompt messages (using LangChain's `messages_to_dict`), output responses, and the correlation `gen_ai_conversation_id`.
 - Output these JSON payloads directly to `stdout` / `stderr`. Google Cloud Logging automatically ingests stdout JSON objects into structured `jsonPayload` fields.
-- **Avoid duplicating sensitive content**: prompt/response content is already captured on spans/events via `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`. Mirroring it into logs as well doubles storage of potentially large or sensitive payloads. In this repo the log-side content mirroring can be turned off by setting `OTEL_DEMO_LOG_GENAI_CONTENT=false` (structural log entries are still emitted).
+- **Avoid duplicating sensitive content**: Prompt/response content is already captured on spans/events via `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`. Mirroring it into logs as well doubles storage of potentially large or sensitive payloads. To prevent duplication, you should implement a configuration toggle in your custom logging callbacks (e.g., matching on a custom environment variable such as `DISABLE_CONTENT_LOGGING=true`) to suppress prompt/response content from stdout while keeping metadata structural logging enabled.
 
 > **Implementation note (Gemini ↔ LangChain shim)**: the upstream `opentelemetry-instrumentation-genai-langchain` callback handler only instruments chat models whose serialized class name is `ChatOpenAI`/`ChatBedrock`, and derives the provider from the `ls_provider` metadata. To trace Gemini models, the custom handler temporarily renames the serialized class to `ChatOpenAI` so it passes that gate; the provider stays `google_*` (metadata-derived) and is normalized to `gcp.vertex_ai` by the compliance span processor. If you upgrade that upstream package, re-verify this gate still exists, or Gemini spans may silently stop being emitted.
 

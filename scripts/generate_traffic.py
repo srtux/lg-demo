@@ -57,7 +57,7 @@ def main():
     console.print("[bold green]Loading Reasoning Engine...[/bold green]")
     re = AgentEngine(RESOURCE_NAME)
 
-    num_conversations = 10
+    num_conversations = 3
     turns_per_conversation = 5
 
     for conv_idx in range(num_conversations):
@@ -73,7 +73,7 @@ def main():
         template = random.choice(CONVERSATION_TEMPLATES)
 
         for turn_idx in range(turns_per_conversation):
-            query_text = template[turn_idx]
+            query_text = template[turn_idx].replace("YOUR_PROJECT_ID", PROJECT_ID)
 
             console.print(f"[cyan]Conversation {conv_idx + 1} - Turn {turn_idx + 1} (User):[/cyan] {query_text}")
 

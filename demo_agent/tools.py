@@ -2,6 +2,12 @@ import httpx
 import google.auth
 import google.auth.transport.requests
 from langchain_core.tools import tool
+import datetime
+
+@tool
+def get_current_time() -> str:
+    """Returns the current date and time on the server."""
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 @tool
 def call_logging_mcp(tool_name: str, arguments: dict) -> str:
@@ -42,7 +48,7 @@ def call_logging_mcp(tool_name: str, arguments: dict) -> str:
         # rather than persistent SSE which failed with 405.
         response = httpx.post(url, headers=headers, json=payload, timeout=30.0)
         response.raise_for_status()
-        return str(response.json())
+        return response.text
     except Exception as e:
         import traceback
         return f"Error calling remote MCP server: {str(e)}\n{traceback.format_exc()}"

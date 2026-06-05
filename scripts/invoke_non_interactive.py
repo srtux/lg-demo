@@ -8,15 +8,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 import vertexai
-from vertexai.preview.reasoning_engines import ReasoningEngine
+from vertexai import agent_engines
 from rich.console import Console
 from rich.panel import Panel
 
 console = Console()
 
 # Configuration
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "summitt-gcp")
-LOCATION = "us-west1"
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+LOCATION = "us-central1"
 RESOURCE_NAME = os.environ.get("REASONING_ENGINE_RESOURCE_NAME")
 
 def main():
@@ -27,13 +27,16 @@ def main():
     vertexai.init(project=PROJECT_ID, location=LOCATION)
     
     console.print(f"[bold blue]Loading Reasoning Engine:[/bold blue] [yellow]{RESOURCE_NAME}[/yellow]")
-    re = ReasoningEngine(RESOURCE_NAME)
+    re = agent_engines.get(RESOURCE_NAME)
     
-    query_input = "Hello, can you list the logs for project summitt-gcp using list_log_entries tool?"
+    query_input = "Hello, can you list the logs for project YOUR_PROJECT_ID using list_log_entries tool?"
     console.print(Panel(f"[bold green]Querying agent with:[/bold green]\n{query_input}", title="Query"))
     
     try:
-        response = re.query(input=query_input)
+        response = re.query(
+            input=query_input,
+            config={"configurable": {"thread_id": "test_thread_1"}}
+        )
         console.print(Panel(f"[bold green]Agent Response:[/bold green]\n{response}", title="Response"))
     except Exception as e:
         console.print(Panel(f"[bold red]Error querying agent:[/bold red] {e}", title="Error", border_style="red"))

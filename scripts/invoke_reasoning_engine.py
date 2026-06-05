@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 import vertexai
-from vertexai.preview.reasoning_engines import ReasoningEngine
+from vertexai.agent_engines import AgentEngine
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -18,8 +18,8 @@ from rich.markdown import Markdown
 console = Console()
 
 # Configuration
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "summitt-gcp")
-LOCATION = "us-west1"
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+LOCATION = "us-central1"
 RESOURCE_NAME = os.environ.get("REASONING_ENGINE_RESOURCE_NAME")
 if not RESOURCE_NAME:
     raise ValueError("REASONING_ENGINE_RESOURCE_NAME environment variable is not set.")
@@ -28,7 +28,7 @@ console.print(f"[bold blue]Initializing Vertex AI...[/bold blue]")
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 
 console.print(f"[bold blue]Loading Reasoning Engine:[/bold blue] [yellow]{RESOURCE_NAME}[/yellow]")
-re = ReasoningEngine(RESOURCE_NAME)
+re = AgentEngine(RESOURCE_NAME)
 
 def parse_agent_response(response):
     """Parses and prints the LangGraph agent response in a readable way."""
@@ -81,7 +81,7 @@ while True:
             continue
             
         console.print("[italic yellow]Thinking...[/italic yellow] ⏳")
-        response = re.query(input=user_input)
+        response = re.query(input=user_input, config=config)
         parse_agent_response(response)
         
     except KeyboardInterrupt:

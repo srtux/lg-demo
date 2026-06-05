@@ -6,10 +6,15 @@ from google.auth.transport.grpc import AuthMetadataPlugin
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-from opentelemetry.instrumentation.langchain import LangchainInstrumentor
+from opentelemetry.instrumentation.genai.langchain import LangChainInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+from contextvars import ContextVar
+from opentelemetry.sdk.trace import SpanProcessor
+from opentelemetry.trace import StatusCode, SpanKind
+import json
 
 
 def _build_resource(project_id: str | None) -> Resource:
@@ -27,6 +32,25 @@ def _build_resource(project_id: str | None) -> Resource:
     return Resource(attributes=attributes)
 
 
+conversation_id_var = ContextVar("conversation_id", default=None)
+
+
+class ComplianceSpanProcessor(SpanProcessor):
+    def on_start(self, span, parent_context=None) -> None:
+        pass
+
+    def on_end(self, span) -> None:
+        # 1. Map provider names to standard gcp.vertex_ai
+        provider = span._attributes.get("gen_ai.provider.name")
+        if provider in ("google_genai", "vertex_ai", "google", "google_vertexai"):
+            span._attributes["gen_ai.provider.name"] = "gcp.vertex_ai"
+            
+        # 2. Inject conversation ID from ContextVar if not already present
+        conv_id = conversation_id_var.get()
+        if conv_id and "gen_ai.conversation.id" not in span._attributes:
+            span._attributes["gen_ai.conversation.id"] = conv_id
+
+
 def init_telemetry() -> None:
     """Initialize OpenTelemetry with OTLP/gRPC export and GenAI instrumentation."""
     # Disable LangSmith OTel integration to avoid double instrumentation.
@@ -36,6 +60,13 @@ def init_telemetry() -> None:
     # Opt-in to GenAI semantic conventions for compatible instrumentations.
     os.environ.setdefault("OTEL_SERVICE_NAME", "demo-langgraph")
     os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    
+    # If set to 'true', map it to 'span_and_event' to prevent OTel SDK enum warnings in experimental mode
+    capture_content = os.environ.get("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT")
+    if not capture_content or capture_content.lower() == "true":
+        os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "span_and_event"
+        
+    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "true")
 
     # Avoid duplicate instrumentation if init_telemetry() is called more than once.
     current_provider = trace.get_tracer_provider()
@@ -57,8 +88,332 @@ def init_telemetry() -> None:
         endpoint="telemetry.googleapis.com:443",
         credentials=channel_creds,
     )
+    provider.add_span_processor(ComplianceSpanProcessor())
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
-    LangchainInstrumentor().instrument()
-    GoogleGenAiSdkInstrumentor().instrument()
+    # Call original instruments
+    LangChainInstrumentor().instrument(skip_dep_check=True)
+    GoogleGenAiSdkInstrumentor().instrument(skip_dep_check=True)
+
+    # Initialize our custom Google supported and tool tracing callback handlers
+    telemetry_handler = get_telemetry_handler()
+    google_callback = GoogleSupportedOTelLangChainCallbackHandler(
+        telemetry_handler=telemetry_handler
+    )
+    tool_callback = CustomToolTracingCallbackHandler()
+    
+    class _CustomCallbackManagerInitWrapper:
+        def __init__(
+            self,
+            google_handler: GoogleSupportedOTelLangChainCallbackHandler,
+            tool_handler: CustomToolTracingCallbackHandler
+        ):
+            self._google_handler = google_handler
+            self._tool_handler = tool_handler
+
+        def __call__(
+            self,
+            wrapped: Any,
+            instance: Any,
+            args: tuple[Any, ...],
+            kwargs: dict[str, Any],
+        ) -> None:
+            wrapped(*args, **kwargs)
+            
+            # Remove the default OpenTelemetryLangChainCallbackHandler handler (if any)
+            # to prevent it from ignoring Google models or emitting duplicates
+            instance.handlers = [
+                h for h in instance.handlers 
+                if type(h) is not OpenTelemetryLangChainCallbackHandler
+            ]
+            if hasattr(instance, "inheritable_handlers"):
+                instance.inheritable_handlers = [
+                    h for h in instance.inheritable_handlers 
+                    if type(h) is not OpenTelemetryLangChainCallbackHandler
+                ]
+            
+            # Register our custom handlers if they aren't already registered
+            handlers_to_check = getattr(instance, "inheritable_handlers", getattr(instance, "handlers", []))
+            
+            for handler in handlers_to_check:
+                if isinstance(handler, GoogleSupportedOTelLangChainCallbackHandler):
+                    break
+            else:
+                instance.add_handler(self._google_handler, inherit=True)
+                
+            for handler in handlers_to_check:
+                if isinstance(handler, CustomToolTracingCallbackHandler):
+                    break
+            else:
+                instance.add_handler(self._tool_handler, inherit=True)
+
+    if not hasattr(init_telemetry, "_tool_instrumented"):
+        wrap_function_wrapper(
+            "langchain_core.callbacks",
+            "BaseCallbackManager.__init__",
+            _CustomCallbackManagerInitWrapper(google_callback, tool_callback),
+        )
+        init_telemetry._tool_instrumented = True
+
+
+from uuid import UUID
+from typing import Any, Optional
+from langchain_core.callbacks import BaseCallbackHandler
+from wrapt import wrap_function_wrapper
+from opentelemetry.trace import SpanKind
+from opentelemetry.util.genai.handler import get_telemetry_handler
+from opentelemetry.instrumentation.genai.langchain.callback_handler import (
+    OpenTelemetryLangChainCallbackHandler,
+)
+
+class SafeJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        try:
+            return super().default(o)
+        except TypeError:
+            return str(o)
+
+
+def log_structured(severity: str, message: str, **kwargs):
+    entry = {
+        "severity": severity,
+        "message": message,
+        **kwargs
+    }
+    try:
+        print(json.dumps(entry, cls=SafeJSONEncoder), flush=True)
+    except Exception as e:
+        print(f"[{severity}] {message} - {kwargs} (Failed to serialize structured logs: {e})", flush=True)
+
+
+class GoogleSupportedOTelLangChainCallbackHandler(OpenTelemetryLangChainCallbackHandler):
+    def on_chain_start(
+        self,
+        serialized: dict[str, Any],
+        inputs: dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> Any:
+        if metadata:
+            for key in ("thread_id", "session_id", "conversation_id"):
+                conv_id = metadata.get(key)
+                if conv_id:
+                    conversation_id_var.set(conv_id)
+                    break
+        
+        if not parent_run_id:
+            try:
+                log_structured(
+                    severity="INFO",
+                    message="Workflow Input Received",
+                    gen_ai_operation="invoke_workflow",
+                    gen_ai_conversation_id=conversation_id_var.get(),
+                    inputs=inputs
+                )
+            except Exception:
+                pass
+
+        return super().on_chain_start(
+            serialized,
+            inputs,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
+            tags=tags,
+            metadata=metadata,
+            **kwargs
+        )
+
+    def on_chain_end(
+        self,
+        outputs: dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> Any:
+        if not parent_run_id:
+            try:
+                log_structured(
+                    severity="INFO",
+                    message="Workflow Output Generated",
+                    gen_ai_operation="invoke_workflow",
+                    gen_ai_conversation_id=conversation_id_var.get(),
+                    outputs=outputs
+                )
+            except Exception:
+                pass
+        return super().on_chain_end(
+            outputs,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
+            **kwargs
+        )
+
+    def on_chat_model_start(
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[Any]],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
+        try:
+            from langchain_core.messages import messages_to_dict
+            messages_list = []
+            for sub_messages in messages:
+                messages_list.extend(messages_to_dict(sub_messages))
+            
+            log_structured(
+                severity="INFO",
+                message="GenAI Prompt Sent",
+                gen_ai_operation="chat",
+                gen_ai_conversation_id=conversation_id_var.get(),
+                model=serialized.get("name") or "unknown",
+                prompts=messages_list
+            )
+        except Exception as e:
+            log_structured(
+                severity="INFO",
+                message="GenAI Prompt Sent",
+                gen_ai_operation="chat",
+                gen_ai_conversation_id=conversation_id_var.get(),
+                model=serialized.get("name") or "unknown",
+                prompts=str(messages)
+            )
+
+        class_name = serialized.get("name")
+        if class_name in ("ChatGoogleGenerativeAI", "ChatVertexAI"):
+            # Clone serialized to avoid mutating caller's data
+            serialized = serialized.copy()
+            serialized["name"] = "ChatOpenAI"
+            
+            # Map invocation parameter 'model' or 'model_name'
+            if "invocation_params" in kwargs and kwargs["invocation_params"]:
+                params = kwargs["invocation_params"]
+                if "model" in params and "model_name" not in params:
+                    params["model_name"] = params["model"]
+            else:
+                if "model" in kwargs and "model_name" not in kwargs:
+                    kwargs["model_name"] = kwargs["model"]
+                    
+        super().on_chat_model_start(
+            serialized,
+            messages,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
+            tags=tags,
+            metadata=metadata,
+            **kwargs
+        )
+
+    def on_llm_end(
+        self,
+        response: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        try:
+            from langchain_core.messages import message_to_dict
+            response_list = []
+            for generation in getattr(response, "generations", []):
+                for chat_generation in generation:
+                    if chat_generation.message:
+                        response_list.append(message_to_dict(chat_generation.message))
+            
+            log_structured(
+                severity="INFO",
+                message="GenAI Response Received",
+                gen_ai_operation="chat",
+                gen_ai_conversation_id=conversation_id_var.get(),
+                responses=response_list
+            )
+        except Exception as e:
+            log_structured(
+                severity="INFO",
+                message="GenAI Response Received",
+                gen_ai_operation="chat",
+                gen_ai_conversation_id=conversation_id_var.get(),
+                responses=str(response)
+            )
+        super().on_llm_end(
+            response,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
+            **kwargs
+        )
+
+
+class CustomToolTracingCallbackHandler(BaseCallbackHandler):
+    def __init__(self) -> None:
+        super().__init__()
+        self._tracer = trace.get_tracer("demo-langgraph")
+        self._active_spans = {}  # type: dict[UUID, Any]
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
+        tool_name = serialized.get("name") or "unknown_tool"
+        span = self._tracer.start_span(
+            name=f"execute_tool {tool_name}",
+            kind=SpanKind.INTERNAL
+        )
+        span.set_attribute("gen_ai.operation.name", "execute_tool")
+        span.set_attribute("gen_ai.tool.name", tool_name)
+        span.set_attribute("gen_ai.tool.type", "function" if tool_name != "call_logging_mcp" else "extension")
+        
+        # Add tool description if available
+        desc = serialized.get("description")
+        if desc:
+            span.set_attribute("gen_ai.tool.description", desc)
+            
+        if input_str:
+            span.set_attribute("gen_ai.tool.call.arguments", input_str)
+                
+        self._active_spans[run_id] = span
+
+    def on_tool_end(
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        span = self._active_spans.pop(run_id, None)
+        if span:
+            if output:
+                span.set_attribute("gen_ai.tool.call.result", str(output))
+            span.end()
+
+    def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> None:
+        span = self._active_spans.pop(run_id, None)
+        if span:
+            span.record_exception(error)
+            span.set_status(trace.StatusCode.ERROR, str(error))
+            span.set_attribute("error.type", error.__class__.__name__)
+            span.end()

@@ -15,8 +15,8 @@ from rich.panel import Panel
 console = Console()
 
 # Configuration
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "summitt-gcp")
-LOCATION = "us-west1"
+PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+LOCATION = "us-central1"
 
 def main():
     console.print(Panel(f"[bold blue]Initializing Vertex AI[/bold blue]\nProject: [yellow]{PROJECT_ID}[/yellow]\nLocation: [yellow]{LOCATION}[/yellow]"))
@@ -32,11 +32,14 @@ def main():
     except Exception as e:
         console.print(f"[dim]Note: set_up() raised an exception (might not be required): {e}[/dim]")
     
-    query_input = "Can you call call_logging_mcp with tool_name='list_log_entries' and arguments={'resourceNames': ['projects/summitt-gcp']}?"
+    query_input = "Can you call call_logging_mcp with tool_name='list_log_entries' and arguments={'resourceNames': ['projects/YOUR_PROJECT_ID']}?"
     console.print(Panel(f"[bold green]Querying agent with:[/bold green]\n{query_input}", title="Query"))
     
     try:
-        response = agent.query(input=query_input)
+        response = agent.query(
+            input=query_input,
+            config={"configurable": {"thread_id": "test_thread_1"}}
+        )
         console.print(Panel(f"[bold green]Agent Response:[/bold green]\n{response}", title="Response"))
     except Exception as e:
         console.print(Panel(f"[bold red]Error querying agent:[/bold red] {e}\nMake sure you have set a valid PROJECT_ID and are authenticated with Google Cloud.", title="Error", border_style="red"))

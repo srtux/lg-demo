@@ -1,7 +1,7 @@
 [project]
 name = "langgraph-demo"
 version = "0.1.0"
-description = "Add your description here"
+description = "LangGraph Demo Agent with OpenTelemetry GenAI semantic conventions on Vertex AI Agent Engine"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,12 +12,16 @@ dependencies = [
     "httpx>=0.28.1",
     "langchain-core>=1.4.0",
     "langchain-google-vertexai>=3.2.3",
+    "langchain-openai>=0.3.0",
     "langgraph>=1.2.0",
     "opentelemetry-api>=1.41.1",
     "opentelemetry-exporter-otlp>=1.41.1",
-    "opentelemetry-instrumentation-google-genai>=0.7b0",
-    "opentelemetry-instrumentation-langchain>=0.60.0",
+    "opentelemetry-util-genai @ git+https://github.com/open-telemetry/opentelemetry-python-genai.git#subdirectory=util/opentelemetry-util-genai",
+    "opentelemetry-instrumentation-google-genai @ git+https://github.com/open-telemetry/opentelemetry-python-genai.git#subdirectory=instrumentation/opentelemetry-instrumentation-google-genai",
+    "opentelemetry-instrumentation-genai-langchain @ git+https://github.com/open-telemetry/opentelemetry-python-genai.git#subdirectory=instrumentation/opentelemetry-instrumentation-genai-langchain",
     "opentelemetry-sdk>=1.41.1",
+    "opentelemetry-semantic-conventions>=0.63b1",
+    "pyopenssl>=26.2.0",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
     "wrapt==1.17.3",

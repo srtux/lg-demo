@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import random
+import uuid
 from dotenv import load_dotenv
 
 # Add parent directory to sys.path to find demo_agent
@@ -60,54 +61,45 @@ def main():
     turns_per_conversation = 5
 
     for conv_idx in range(num_conversations):
-        console.print(Panel(f"[bold magenta]Starting Conversation {conv_idx + 1}/{num_conversations}[/bold magenta]"))
-        
+        # Each conversation gets a unique thread_id so the server-side
+        # checkpointer maintains multi-turn state and the telemetry layer can
+        # populate gen_ai.conversation.id for the whole conversation.
+        thread_id = f"traffic-{conv_idx + 1}-{uuid.uuid4().hex[:8]}"
+        config = {"configurable": {"thread_id": thread_id}}
+
+        console.print(Panel(f"[bold magenta]Starting Conversation {conv_idx + 1}/{num_conversations}[/bold magenta]\nThread: [yellow]{thread_id}[/yellow]"))
+
         # Select a conversation template
         template = random.choice(CONVERSATION_TEMPLATES)
-        
-        # Maintain history locally as a list of message dicts
-        history = []
 
         for turn_idx in range(turns_per_conversation):
-            # Formulate the query (resolve variable mapping if template contains formatting placeholders)
             query_text = template[turn_idx]
-            
+
             console.print(f"[cyan]Conversation {conv_idx + 1} - Turn {turn_idx + 1} (User):[/cyan] {query_text}")
-            
-            # Append the user turn to history
-            history.append({"role": "user", "content": query_text})
-            
-            # Query the agent with the full message history
+
+            # Send only the current turn; the checkpointer (keyed by thread_id)
+            # supplies the prior conversation history server-side.
             try:
-                # We pass the full history in input
-                # LangGraph StateGraph's 'messages' field can accept list of message dicts
-                response = re.query(input={"messages": history})
-                
-                # Retrieve the assistant response
-                # The response structure from LanggraphAgent.query is a dictionary containing the state keys
-                # We extract the content of the last message returned in the state
+                response = re.query(input=query_text, config=config)
+
+                # The response from LanggraphAgent.query is a dict of state keys.
+                # Extract the content of the last (AI) message returned.
                 messages = response.get("messages", [])
-                
+
                 if messages:
-                    # In LangGraph response payload, the message objects are serialized.
-                    # We can find the last message (which should be the AI response)
                     last_msg = messages[-1]
-                    
-                    # Safe retrieval based on serialized structure
+
                     last_content = ""
                     if isinstance(last_msg, dict):
-                        # check if it's langchain serialized JSON format
+                        # langchain serialized JSON format
                         kwargs = last_msg.get("kwargs", {})
                         last_content = kwargs.get("content", "")
                         if not last_content and "tool_calls" in kwargs:
                             last_content = f"[Tool calls: {kwargs['tool_calls']}]"
                     else:
                         last_content = str(last_msg)
-                        
+
                     console.print(f"[green]Agent Response:[/green] {last_content}")
-                    
-                    # Append assistant turn to history
-                    history.append({"role": "assistant", "content": last_content})
                 else:
                     console.print("[yellow]Warning: Agent returned empty messages list.[/yellow]")
             except Exception as e:

@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 import vertexai
+from opentelemetry import trace
 from demo_agent import create_agent
 from rich.console import Console
 from rich.panel import Panel
@@ -43,6 +44,11 @@ def main():
         console.print(Panel(f"[bold green]Agent Response:[/bold green]\n{response}", title="Response"))
     except Exception as e:
         console.print(Panel(f"[bold red]Error querying agent:[/bold red] {e}\nMake sure you have set a valid PROJECT_ID and are authenticated with Google Cloud.", title="Error", border_style="red"))
+    finally:
+        # Flush any batched spans before this short-lived process exits.
+        provider = trace.get_tracer_provider()
+        if hasattr(provider, "shutdown"):
+            provider.shutdown()
 
 if __name__ == "__main__":
     main()

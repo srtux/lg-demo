@@ -18,14 +18,18 @@ def custom_model_builder(
 ) -> ChatGoogleGenerativeAI:
     # Initialize telemetry on the server side
     init_telemetry()
-    
+
     model_kwargs = model_kwargs or {}
-    
+
     # Map model name if it starts with google/
     clean_model_name = model_name
     if clean_model_name.startswith("google/"):
         clean_model_name = clean_model_name[len("google/"):]
-        
+
+    # Use the unified google-genai backend pointed at Vertex AI. Per
+    # langchain-ai/langchain-google#1422, ChatGoogleGenerativeAI with
+    # vertexai=True is the supported path for Gemini-on-Vertex; ChatVertexAI
+    # (langchain-google-vertexai) is being deprecated.
     return ChatGoogleGenerativeAI(
         model=clean_model_name,
         project=project,

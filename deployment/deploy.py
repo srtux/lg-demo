@@ -23,15 +23,14 @@ STAGING_BUCKET = os.environ.get("STAGING_BUCKET", "gs://agent-engine-staging-YOU
 REQUIREMENTS = [
     "google-cloud-aiplatform[agent_engines,langchain]",
     "langgraph",
+    "langchain-google-genai>=2.0.0",
     "mcp",
-    "opentelemetry-instrumentation-vertexai",
     "opentelemetry-exporter-otlp",
     "opentelemetry-sdk",
     "opentelemetry-semantic-conventions>=0.63b1",
     "opentelemetry-util-genai @ git+https://github.com/open-telemetry/opentelemetry-python-genai.git#subdirectory=util/opentelemetry-util-genai",
     "opentelemetry-instrumentation-google-genai @ git+https://github.com/open-telemetry/opentelemetry-python-genai.git#subdirectory=instrumentation/opentelemetry-instrumentation-google-genai",
     "opentelemetry-instrumentation-genai-langchain @ git+https://github.com/open-telemetry/opentelemetry-python-genai.git#subdirectory=instrumentation/opentelemetry-instrumentation-genai-langchain",
-    "langchain-openai",
     "pyopenssl",
 ]
 

@@ -1,10 +1,10 @@
-# Deploying LangGraph Agents on Google Cloud Agent Platform
+# Deploying LangGraph Agents on Gemini Enterprise Agent Platform
 
-Google Cloud Agent Platform (via Vertex AI Agent Engine) provides support for deploying and managing stateful, multi-turn LangGraph agents. By integrating with `vertexai.agent_engines`, you can seamlessly host your LangGraph architectures while leveraging Google Cloud's built-in observability and tracing solutions.
+Gemini Enterprise Agent Platform provides support for deploying and managing stateful, multi-turn LangGraph agents. By integrating with `vertexai.agent_engines`, you can seamlessly host your LangGraph architectures while leveraging Google Cloud's built-in Agent Observability and tracing capabilities.
 
 To ensure strict compliance with standard OpenTelemetry GenAI conventions, this setup uses the official OTel community library **`opentelemetry-instrumentation-genai-langchain`** (the official home resulting from the donation of OpenInference to the OpenTelemetry project) rather than the legacy **`openinference-instrumentation-langchain`** package, eliminating the need for transitional semantic convention translation flags.
 
-To ensure a smooth transition from local development to production on Agent Platform—particularly for tracing and memory management—there are several core configuration changes and best practices you should adopt.
+There are several core configuration changes and best practices to be aware of:
 
 ## 1. Use the Agent Engine SDK
 

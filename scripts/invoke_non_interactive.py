@@ -29,7 +29,7 @@ def main():
     console.print(f"[bold blue]Loading Reasoning Engine:[/bold blue] [yellow]{RESOURCE_NAME}[/yellow]")
     re = agent_engines.get(RESOURCE_NAME)
     
-    query_input = "Hello, can you list the logs for project YOUR_PROJECT_ID using list_log_entries tool?"
+    query_input = f"Hello, can you list the logs for project {PROJECT_ID} using list_log_entries tool?"
     console.print(Panel(f"[bold green]Querying agent with:[/bold green]\n{query_input}", title="Query"))
     
     try:

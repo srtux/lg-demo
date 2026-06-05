@@ -33,7 +33,7 @@ def main():
     except Exception as e:
         console.print(f"[dim]Note: set_up() raised an exception (might not be required): {e}[/dim]")
     
-    query_input = "Can you call call_logging_mcp with tool_name='list_log_entries' and arguments={'resourceNames': ['projects/YOUR_PROJECT_ID']}?"
+    query_input = f"Can you call call_logging_mcp with tool_name='list_log_entries' and arguments={{'resourceNames': ['projects/{PROJECT_ID}']}}?"
     console.print(Panel(f"[bold green]Querying agent with:[/bold green]\n{query_input}", title="Query"))
     
     try:

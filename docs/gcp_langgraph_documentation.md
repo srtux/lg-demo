@@ -15,7 +15,7 @@ When defining and deploying your agent, transition to the General Availability (
 
 The Agent Platform manages the runtime lifecycle of your agent in a remote container. To ensure models and state management initialize correctly upon execution, you must define them using builder functions.
 
-- **Custom Model Builder**: Supply a `model_builder` function to `LanggraphAgent`. This function is invoked during runtime. Use it to instantiate your models (e.g., `ChatGoogleGenerativeAI`) and to trigger any necessary server-side initialization (like starting your OpenTelemetry exporters).
+- **Custom Model Builder**: Supply a `model_builder` function to `LanggraphAgent`. This function is invoked during runtime. Use it to instantiate your models and to trigger any necessary server-side initialization (like starting your OpenTelemetry exporters). For Gemini on Vertex AI, use `ChatGoogleGenerativeAI` from `langchain-google-genai` with `vertexai=True` (plus `project`/`location`). Per [langchain-google#1422](https://github.com/langchain-ai/langchain-google/discussions/1422), this unified path supersedes `ChatVertexAI` (from `langchain-google-vertexai`), which is being deprecated.
 - **State Management (Checkpointers)**: Enable stateful, multi-turn conversations by returning a checkpointer (such as LangGraph's `MemorySaver`) through a `checkpointer_builder` function.
 - **Thread IDs**: When querying the deployed agent, explicitly pass the thread ID in the query configuration payload so the checkpointer can resume the conversation state.
   ```python
@@ -33,20 +33,7 @@ For production visibility, integrating OpenTelemetry with GenAI Semantic Convent
 - **Dual Initialization**: Initialize your OpenTelemetry configuration twice:
   1.  On the **client side** right before packaging and deploying the agent.
   2.  On the **server side** inside your `custom_model_builder` function to ensure it runs in the deployed container.
-- **Agent Span Classification**: By default, LangGraph graph executions are categorized as generic `invoke_workflow` spans. To classify your execution as an agent span (`invoke_agent`), supply agent signal metadata during execution:
-  ```python
-  config = {
-      "configurable": {"thread_id": "thread-123"},
-      "metadata": {
-          "otel_agent_span": True,             # Triggers invoke_agent classification
-          "agent_name": "LoggingAssistant",    # Populates gen_ai.agent.name
-          "agent_id": "logging-assistant-v1",  # Populates gen_ai.agent.id
-          "agent_description": "Expert GCP logs assistant"
-      }
-  }
-  response = remote_agent.query(input=..., config=config)
-  ```
-- **Context-Local Conversation ID Propagation**: LangGraph passes thread information dynamically via config metadata. In your custom callbacks, capture the active thread ID (`thread_id`, `session_id`, or `conversation_id`) and store it in a context-local variable (`contextvars.ContextVar`). Use a custom `SpanProcessor` to intercept spans at `on_end` and inject the `gen_ai.conversation.id` attribute.
+- **Context-Local Conversation ID Propagation**: LangGraph passes thread information dynamically via config metadata. In your custom callbacks, capture the active thread ID (`thread_id`, `session_id`, or `conversation_id`) from the **root** chain's metadata and store it in a context-local variable (`contextvars.ContextVar`), retaining the reset token so the value is restored when the root workflow ends (preventing the id from leaking across requests that share a worker context). A custom `SpanProcessor` then intercepts spans at `on_end` and injects the `gen_ai.conversation.id` attribute.
 - **OTel Provider Name Normalization**: The unified `google-genai` SDK and LangChain integrations may output non-standard `gen_ai.provider.name` values (e.g. `google_genai` or `vertex_ai`). Use a custom `SpanProcessor` to intercept spans and normalize the provider name to the standard **`gcp.vertex_ai`**.
 - **Tool Tracing Compliance**: To capture tool activities:
   - Create internal spans using `SpanKind.INTERNAL` named `execute_tool {tool_name}`.
@@ -61,6 +48,9 @@ Ensure prompt messages and responses are written to Cloud Logging in a structure
 - Implement custom callback hooks for `on_chain_start`, `on_chain_end`, `on_chat_model_start`, and `on_llm_end`.
 - Format log entries as structured JSON objects containing severity, message, list of prompt messages (using LangChain's `messages_to_dict`), output responses, and the correlation `gen_ai_conversation_id`.
 - Output these JSON payloads directly to `stdout` / `stderr`. Google Cloud Logging automatically ingests stdout JSON objects into structured `jsonPayload` fields.
+- **Avoid duplicating sensitive content**: prompt/response content is already captured on spans/events via `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`. Mirroring it into logs as well doubles storage of potentially large or sensitive payloads. In this repo the log-side content mirroring can be turned off by setting `OTEL_DEMO_LOG_GENAI_CONTENT=false` (structural log entries are still emitted).
+
+> **Implementation note (Gemini ↔ LangChain shim)**: the upstream `opentelemetry-instrumentation-genai-langchain` callback handler only instruments chat models whose serialized class name is `ChatOpenAI`/`ChatBedrock`, and derives the provider from the `ls_provider` metadata. To trace Gemini models, the custom handler temporarily renames the serialized class to `ChatOpenAI` so it passes that gate; the provider stays `google_*` (metadata-derived) and is normalized to `gcp.vertex_ai` by the compliance span processor. If you upgrade that upstream package, re-verify this gate still exists, or Gemini spans may silently stop being emitted.
 
 ## 5. Enable Telemetry in the Deployment Environment
 

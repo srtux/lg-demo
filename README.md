@@ -42,7 +42,7 @@ For a comprehensive guide on deploying, configuring, and instrumenting LangGraph
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.12+ (see `pyproject.toml` / `.python-version`)
 - [uv](https://github.com/astral-sh/uv) (recommended) or `pip`
 - Google Cloud SDK authenticated on your development machine
 
@@ -146,4 +146,5 @@ The telemetry layer initializes OpenTelemetry and forces the following behavior:
 - **OTLP/gRPC Exporter**: Spans are exported to `telemetry.googleapis.com:443` using credentials loaded from Google Application Default Credentials.
 - **Stability and Schema Opt-in**: Runs with `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`.
 - **Message Content Capture**: Automatically captures prompt/response inputs/outputs into spans and events by setting `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=span_and_event`.
-- **Instrumentation**: Instruments the `google_genai` SDK and `langchain` frameworks. It customizes the LangChain callback manager so that standard LangChain spans work seamlessly with Gemini endpoints.
+- **Instrumentation**: Instruments the `google_genai` SDK and `langchain` frameworks. It customizes the LangChain callback manager so that standard LangChain spans work with Gemini endpoints, which the upstream handler otherwise skips (see the implementation note in the [docs](./docs/gcp_langgraph_documentation.md#4-structured-json-cloud-logging) about the `ChatOpenAI` shim).
+- **Optional log content control**: Set `OTEL_DEMO_LOG_GENAI_CONTENT=false` to stop mirroring prompt/response content into Cloud Logging (it is still captured on spans).

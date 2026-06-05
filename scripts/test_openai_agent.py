@@ -67,6 +67,11 @@ def main():
             print(f"- {msg.type}: {msg.content or msg.tool_calls}")
     except Exception as e:
         print(f"Error querying agent: {e}")
+    finally:
+        # Flush spans before this short-lived process exits.
+        provider = trace.get_tracer_provider()
+        if hasattr(provider, "shutdown"):
+            provider.shutdown()
 
 if __name__ == "__main__":
     main()
